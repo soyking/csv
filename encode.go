@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strconv"
+	"strings"
 )
 
 // Marshaler is an interface for objects which can Marshal themselves into CSV.
@@ -44,25 +44,31 @@ func Marshal(d interface{}) ([]byte, error) {
 
 	data := reflect.ValueOf(d)
 	if data.Kind() != reflect.Slice {
-		if data.Kind() == reflect.Ptr {
+		for data.Kind() == reflect.Ptr {
 			data = data.Elem()
-			if data.Kind() != reflect.Slice {
-				return []byte{}, errors.New("only slices can be marshalled")
-			}
-		} else {
-			return []byte{}, errors.New("only slices can be marshalled")
 		}
+		if data.Kind() != reflect.Slice {
+			return []byte{}, errors.New("only slices and pointer to slices can be marshalled")
+		}
+
 	}
 
-	el := data.Index(0)
-	enc, err := newEncoder(el)
-
+	if data.Len() == 0 {
+		return []byte{}, nil
+	}
+	col := data.Index(0)
+	enc, err := newEncoder(col)
 	if err != nil {
 		return []byte{}, err
 	}
 
-	err = enc.encodeAll(data)
+	var converters []Converter
+	converters, err = getConverters(col)
+	if err != nil {
+		return []byte{}, err
+	}
 
+	err = enc.encodeAll(data, converters)
 	if err != nil {
 		return []byte{}, err
 	}
@@ -71,7 +77,7 @@ func Marshal(d interface{}) ([]byte, error) {
 	return enc.buffer.Bytes(), nil
 }
 
-func newEncoder(el reflect.Value) (*encoder, error) {
+func newEncoder(col reflect.Value) (*encoder, error) {
 	b := bytes.NewBuffer([]byte{})
 
 	enc := &encoder{
@@ -79,20 +85,19 @@ func newEncoder(el reflect.Value) (*encoder, error) {
 		Writer: csv.NewWriter(b),
 	}
 
-	err := enc.Write(colNames(el))
+	err := enc.Write(colNames(col))
 
 	return enc, err
 }
 
 // colNames takes a struct and returns the computed columns names for each
 // field.
-func colNames(v reflect.Value) (out []string) {
-	l := v.Type().NumField()
-
-	for x := 0; x < l; x++ {
-		f := v.Field(x)
-		t := v.Type().Field(x)
-		h, ok := fieldHeaderName(t, f)
+func colNames(col reflect.Value) (out []string) {
+	l := col.Type().NumField()
+	for i := 0; i < l; i++ {
+		f := col.Field(i)
+		t := col.Type().Field(i)
+		h, ok := getColName(t, f)
 		if ok {
 			out = append(out, h...)
 		}
@@ -101,21 +106,25 @@ func colNames(v reflect.Value) (out []string) {
 	return
 }
 
-// fieldHeaderName returns the header name to use for the given StructField
+// getColName returns the header name to use for the given StructField
 // This can be a user defined name (via the Tag) or a default name.
-func fieldHeaderName(t reflect.StructField, f reflect.Value) ([]string, bool) {
-	tag := t.Tag.Get("csv")
+func getColName(t reflect.StructField, f reflect.Value) ([]string, bool) {
+	tag := strings.Split(t.Tag.Get("csv"), ";")[0]
 	if tag == "-" {
 		return []string{}, false
 	}
 
 	// If there is no tag set, use a default name
 	if tag == "" {
-		if f.Kind() == reflect.Struct || f.Kind() == reflect.Interface {
+		if f.Kind() == reflect.Struct {
 			return colNames(f), true
-		} else if f.Kind() == reflect.Ptr {
-			f = f.Elem()
-			return colNames(f), true
+		} else {
+			for f.Kind() == reflect.Ptr {
+				f = f.Elem()
+			}
+			if f.Kind() == reflect.Struct {
+				return colNames(f), true
+			}
 		}
 		return []string{t.Name}, true
 	}
@@ -123,11 +132,63 @@ func fieldHeaderName(t reflect.StructField, f reflect.Value) ([]string, bool) {
 	return []string{tag}, true
 }
 
+func getConverters(col reflect.Value) ([]Converter, error) {
+	var c []Converter
+	l := col.Type().NumField()
+	for i := 0; i < l; i++ {
+		f := col.Field(i)
+		tag := col.Type().Field(i).Tag.Get("csv")
+
+		if strings.Split(tag, ";")[0] != "=" {
+			if converter, err := genConverter(f, tag); err != nil {
+				return c, err
+			} else {
+				c = append(c, converter)
+			}
+		}
+	}
+
+	return c, nil
+}
+
+func genConverter(f reflect.Value, tag string) (Converter, error) {
+	var converter Converter
+	var err error
+
+	switch f.Kind() {
+	case reflect.String:
+		converter, err = NewStringConverter(tag)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		converter, err = NewIntConverter(tag)
+	case reflect.Float32, reflect.Float64:
+		converter, err = NewFloatConverter(tag)
+	case reflect.Bool:
+		converter, err = NewBoolConverter(tag)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		converter, err = NewUintConverter(tag)
+	case reflect.Struct:
+		converter, err = NewStructConverter(tag, f)
+	case reflect.Ptr:
+		for f.Kind() == reflect.Ptr {
+			f = f.Elem()
+		}
+		return genConverter(f, tag)
+	default:
+		if strings.Split(tag, ";")[0] == "-" {
+			converter, err = NewEmptyConverter()
+		} else {
+			return converter, errors.New(fmt.Sprintf("not support this type:%s", f.Kind()))
+		}
+	}
+
+	return converter, err
+}
+
 // encodeAll iterates over each item in data, encoder it then writes it
-func (enc *encoder) encodeAll(data reflect.Value) error {
+func (enc *encoder) encodeAll(data reflect.Value, converters []Converter) error {
 	n := data.Len()
-	for c := 0; c < n; c++ {
-		row, err := enc.encodeRow(data.Index(c))
+	for i := 0; i < n; i++ {
+		row, err := encodeRow(data.Index(i), converters)
 		if err != nil {
 			return err
 		}
@@ -142,21 +203,15 @@ func (enc *encoder) encodeAll(data reflect.Value) error {
 }
 
 // encodes a struct into a CSV row
-func (enc *encoder) encodeRow(v reflect.Value) ([]string, error) {
-
+func encodeRow(v reflect.Value, converters []Converter) ([]string, error) {
 	var row []string
-	// TODO env.columns should map to a cfield
-	// iterate over each cfield and encode with it
 	l := v.Type().NumField()
-
-	for x := 0; x < l; x++ {
-		fv := v.Field(x)
-		st := v.Type().Field(x).Tag
-
-		if st.Get("csv") == "-" {
-			continue
+	for i := 0; i < l; i++ {
+		f := v.Field(i)
+		for f.Kind() == reflect.Ptr {
+			f = f.Elem()
 		}
-		o, err := enc.encodeCol(fv, st)
+		o, err := converters[i].Covert(f)
 		if err != nil {
 			return []string{}, err
 		}
@@ -164,61 +219,4 @@ func (enc *encoder) encodeRow(v reflect.Value) ([]string, error) {
 	}
 
 	return row, nil
-}
-
-// Returns the string representation of the field value
-func (enc *encoder) encodeCol(fv reflect.Value, st reflect.StructTag) ([]string, error) {
-	switch fv.Kind() {
-	case reflect.String:
-		return []string{fv.String()}, nil
-	case reflect.Int, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Int8:
-		return []string{fmt.Sprintf("%v", fv.Int())}, nil
-	case reflect.Float32:
-		return []string{encodeFloat(32, fv)}, nil
-	case reflect.Float64:
-		return []string{encodeFloat(64, fv)}, nil
-	case reflect.Bool:
-		return []string{encodeBool(fv.Bool(), st)}, nil
-	case reflect.Uint, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uint8:
-		return []string{fmt.Sprintf("%v", fv.Uint())}, nil
-	case reflect.Complex64, reflect.Complex128:
-		return []string{fmt.Sprintf("%+.3g", fv.Complex())}, nil
-	case reflect.Interface:
-		return encodeInterface(enc, fv)
-	case reflect.Struct:
-		return encodeInterface(enc, fv)
-	case reflect.Ptr:
-		fv = fv.Elem()
-		fmt.Println("encode col ptr")
-		return enc.encodeCol(fv, st)
-	default:
-		return []string{}, errors.New(fmt.Sprintf("Unsupported type %s", fv.Kind()))
-	}
-
-	return []string{}, nil
-}
-
-func encodeFloat(bits int, f reflect.Value) string {
-	return strconv.FormatFloat(f.Float(), 'g', -1, bits)
-}
-
-func encodeBool(b bool, st reflect.StructTag) string {
-	v := strconv.FormatBool(b)
-	tv := st.Get(v)
-
-	if tv != "" {
-		return tv
-	}
-	return v
-}
-
-func encodeInterface(enc *encoder, fv reflect.Value) ([]string, error) {
-	marshalerType := reflect.TypeOf(new(Marshaler)).Elem()
-
-	if fv.Type().Implements(marshalerType) {
-		m := fv.Interface().(Marshaler)
-		return m.MarshalCSV()
-	}
-
-	return enc.encodeRow(fv)
 }
