@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// ------ convert string type to set in tag of `csv`
 type StructCoverter struct {
 	colName    string
 	converters []Converter

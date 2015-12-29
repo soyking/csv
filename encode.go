@@ -19,7 +19,7 @@ type encoder struct {
 	buffer *bytes.Buffer
 }
 
-// Marshal returns the CSV encoding of i, which must be a slice of struct types.
+// Marshal returns the CSV encoding of d, which must be a slice of struct or pointer to a slice of struct.
 //
 // Marshal traverses the slice and encodes the primative values.
 //
@@ -33,15 +33,20 @@ type encoder struct {
 //
 //   Field string `csv:"-"`
 //
-// Boolean fields can use string values to define true or false.
-//   Bool bool `true:"Yes" false:"No"`
+// When a field is a string/int/uint/bool/float, you could use tag to add conditions to it, such as:
+//
+//   Married   bool    `csv:"married;true:yes;false:false"`
+//
+// You could view samples.The condition is something like:
+//
+//   $lt less than; $gt greater than; $lte less than or equal; $gte greater than or equal
+//   $eq equal; $ne not equal
+//   $default default val
+//
+// Please watch out that when comparing float values, sometimes it wouldn't give you correct answer
+//
+// When a field is a struct or a pointer to struct type, it will be flatten
 func Marshal(d interface{}) ([]byte, error) {
-	// validate the interface
-	// create a new encoder
-	//   assing the cfields
-	// get the headers
-	// encoder each row
-
 	data := reflect.ValueOf(d)
 	if data.Kind() != reflect.Slice {
 		for data.Kind() == reflect.Ptr {

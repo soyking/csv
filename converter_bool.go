@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// ------ convert string type to set in tag of `csv`
 type BoolCoverter struct {
 	colName  string
 	trueVal  string

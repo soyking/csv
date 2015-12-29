@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// ------ convert float type to set in tag of `csv`
 type FloatConverter struct {
 	colName     string
 	conditions  []string
@@ -19,7 +18,6 @@ type FloatConverter struct {
 func NewFloatConverter(tag string) (FloatConverter, error) {
 	var c FloatConverter
 	cons := strings.Split(tag, ";")
-	fmt.Println(cons)
 	c.colName = cons[0]
 	if len(cons) >= 2 && c.colName != "-" {
 		cons = cons[1:]

@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// ------ convert int type to set in tag of `csv`
 type IntConverter struct {
 	colName     string
 	conditions  []string

@@ -6,7 +6,6 @@ import (
 	"strings"
 )
 
-// ------ convert string type to set in tag of `csv`
 type StringCoverter struct {
 	colName    string
 	conditions map[string]string

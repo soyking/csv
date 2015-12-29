@@ -4,7 +4,6 @@ import (
 	"reflect"
 )
 
-// ------ convert string type to set in tag of `csv`
 type EmptyConverter struct {
 }
 
