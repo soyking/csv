@@ -1,69 +1,36 @@
 package csv
 
 import (
-	"reflect"
+	"fmt"
 	"testing"
 )
 
-type X struct {
-	First string
+type TypeA struct {
+	Name    string `csv:"Na"`
+	Phone   int    `csv:"ph"`
+	Age     *int   `csv:"aGe"`
+	Married bool   `csv:"ma" true:"yes" false:"no"`
+	B       *TypeB
 }
 
-type P struct {
-	First string
-	Last  string
+type TypeB struct {
+	House string `csv:"-"`
+	Tele  string
 }
 
-func (p P) MarshalCSV() ([]byte, error) {
-	return []byte(p.First + " " + p.Last), nil
-}
+// func (b TypeB) MarshalCSV() ([]string, error) {
+// 	return []string{b.House, b.Tele}, nil
+// }
 
-func TestMarshal_without_a_slice(t *testing.T) {
-	_, err := Marshal(simple{})
-
-	if err == nil {
-		t.Error("Non slice produced no error")
+func TestMarshal(t *testing.T) {
+	var aSlice = []TypeA{TypeA{Name: "soy", Phone: 123, B: &TypeB{"west", "010-56"}}}
+	a := 9
+	var age = &a
+	aSlice[0].Age = age
+	r, err := Marshal(aSlice)
+	if err != nil {
+		t.Error(err)
+	} else {
+		fmt.Println(string(r))
 	}
-}
-
-func TestEncodeFieldValue(t *testing.T) {
-	var encTests = []struct {
-		val      interface{}
-		expected string
-		tag      string
-	}{
-		// Strings
-		{"ABC", "ABC", ""},
-		{byte(123), "123", ""},
-
-		// Numerics
-		{int(1), "1", ""},
-		{float32(3.2), "3.2", ""},
-		{uint32(123), "123", ""},
-		{complex64(1 + 2i), "(+1+2i)", ""},
-
-		// Boolean
-		{true, "Yes", `true:"Yes" false:"No"`},
-		{false, "No", `true:"Yes" false:"No"`},
-
-		// TODO Array
-		// Interface with Marshaler
-		{P{"Jay", "Zee"}, "Jay Zee", ""},
-
-		// Struct without Marshaler will produce nothing
-		{X{"Jay"}, "", ""},
-	}
-
-	enc := &encoder{}
-
-	for _, test := range encTests {
-		fv := reflect.ValueOf(test.val)
-		st := reflect.StructTag(test.tag)
-		res := enc.encodeCol(fv, st)
-
-		if res != test.expected {
-			t.Errorf("%s does not match %s", res, test.expected)
-		}
-	}
-
 }
