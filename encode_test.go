@@ -7,12 +7,12 @@ import (
 
 type TypeA struct {
 	A    string  `csv:"-"`
-	AA   string  `csv:"aa;abc:def"`
+	AA   string  `csv:"aa;abc:def" csv-order:"2"`
 	AAA  string  `csv:"aaa;abc:def;$default:字符串"`
 	B    int     `csv:"-"`
-	BB   int     `csv:"bb;$eq:1:男"`
+	BB   int     `csv:"bb;$eq:1:男" csv-order:"1"`
 	BBB  int     `csv:"bbb;$gt:1:女"`
-	BBBB int     `csv:"bbbb;$default:整数"`
+	BBBB int     `csv:"bbbb;$default:整数" csv-order:"3"`
 	C    float32 `csv:"-"`
 	CC   float32 `csv:"cc;$eq:1.1:man"`
 	CCC  float32 `csv:"ccc;$lt:6.6:woman"`
@@ -26,12 +26,11 @@ type TypeA struct {
 	EEEE uint    `csv:"eeee;$default:短整数"`
 	F    TypeB   `csv:"-"`
 	FF   TypeB
-	FFF  *TypeB
 	G    TypeC
 }
 
 type TypeB struct {
-	s string `csv:"ss;abc:def"`
+	s string `csv:"ss;abc:def" csv-order:"4"`
 	i int    `csv:"ii;$eq:2:is2"`
 }
 
@@ -64,7 +63,6 @@ func TestConverter(t *testing.T) {
 			EEE: 0,
 			F:   TypeB{s: "abc", i: 2},
 			FF:  TypeB{s: "abc", i: 2},
-			FFF: &TypeB{s: "abc", i: 2},
 			G:   TypeC{"fun", 123},
 		},
 	}
